@@ -1,0 +1,63 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Datos de la clave de subida a Google Play. Vienen de los "secrets" de GitHub
+// (nunca se guardan en el repositorio). Si no existen, solo se compila la versión de prueba.
+def releaseStore = System.getenv('TOCAMATIK_KEYSTORE_FILE')
+def hasReleaseKey = releaseStore != null && file(releaseStore).exists()
+
+android {
+    namespace 'app.tocamatik'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "app.tocamatik"
+        minSdk 26
+        targetSdk 36
+        // GitHub Actions entrega un número que sube en cada compilación
+        versionCode Integer.parseInt(System.getenv('TOCAMATIK_VERSION_CODE') ?: '1')
+        versionName "1.0.0"
+    }
+
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+        if (hasReleaseKey) {
+            release {
+                storeFile file(releaseStore)
+                storePassword System.getenv('TOCAMATIK_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('TOCAMATIK_KEY_ALIAS')
+                keyPassword System.getenv('TOCAMATIK_KEY_PASSWORD') ?: System.getenv('TOCAMATIK_KEYSTORE_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-prueba"
+        }
+        release {
+            minifyEnabled false
+            if (hasReleaseKey) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}

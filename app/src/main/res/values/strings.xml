@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Tocamatik</string>
+    <string name="a11y_summary">Toca automáticamente los puntos que tú marques.</string>
+    <string name="a11y_desc">Tocamatik usa este servicio solo para hacer toques en los puntos que tú colocas en la pantalla y para mostrar su botón flotante. No lee, no guarda y no envía el contenido de tus apps ni lo que escribes.</string>
+    <string name="privacy_url">https://wladimirsentry.github.io/taptap/privacidad.html</string>
+</resources>

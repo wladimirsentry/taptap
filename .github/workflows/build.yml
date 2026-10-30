@@ -1,0 +1,76 @@
+name: Compilar Tocamatik
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+
+      # La clave de subida vive solo en los "secrets" del repositorio, nunca en el código.
+      - name: Preparar clave de subida
+        env:
+          KEYSTORE_BASE64: ${{ secrets.TOCAMATIK_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/tocamatik-upload.jks"
+            echo "TOCAMATIK_KEYSTORE_FILE=$RUNNER_TEMP/tocamatik-upload.jks" >> "$GITHUB_ENV"
+            echo "Clave de subida encontrada: se generará el AAB para Google Play."
+          else
+            echo "::warning::Sin clave de subida (secrets). Solo se compila el APK de prueba."
+          fi
+
+      - name: Compilar APK de prueba
+        env:
+          TOCAMATIK_VERSION_CODE: ${{ github.run_number }}
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Compilar AAB para Google Play
+        if: env.TOCAMATIK_KEYSTORE_FILE != ''
+        env:
+          TOCAMATIK_VERSION_CODE: ${{ github.run_number }}
+          TOCAMATIK_KEYSTORE_PASSWORD: ${{ secrets.TOCAMATIK_KEYSTORE_PASSWORD }}
+          TOCAMATIK_KEY_ALIAS: ${{ secrets.TOCAMATIK_KEY_ALIAS }}
+        run: gradle bundleRelease --no-daemon --stacktrace
+
+      - name: Reunir archivos
+        run: |
+          mkdir -p salida
+          cp app/build/outputs/apk/debug/app-debug.apk "salida/Tocamatik-prueba.apk"
+          if [ -f app/build/outputs/bundle/release/app-release.aab ]; then
+            cp app/build/outputs/bundle/release/app-release.aab "salida/Tocamatik-${{ github.run_number }}.aab"
+          fi
+          rm -f "$RUNNER_TEMP/tocamatik-upload.jks"
+          ls -la salida
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tocamatik-${{ github.run_number }}
+          path: salida/*
+
+      - name: Publicar descarga
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Tocamatik build ${{ github.run_number }}
+          body: |
+            - **Tocamatik-prueba.apk**: para instalar directo en un Android y probar (se instala aparte de la versión de Play).
+            - **Tocamatik-${{ github.run_number }}.aab**: para subir a Google Play Console (solo si la clave de subida está configurada).
+          files: salida/*
+          make_latest: true

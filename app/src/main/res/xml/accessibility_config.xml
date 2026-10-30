@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tocamatik NO es una herramienta de accesibilidad para personas con discapacidad,
+     por eso no declara isAccessibilityTool y muestra su propio aviso con consentimiento. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:summary="@string/a11y_summary"
+    android:description="@string/a11y_desc"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagRequestAccessibilityButton"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="false"
+    android:notificationTimeout="100"
+    android:settingsActivity="app.tocamatik.MainActivity" />

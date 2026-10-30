@@ -1,0 +1,11 @@
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+salida/
+# La clave de subida a Google Play NUNCA va en el repositorio
+*.jks
+!app/debug.keystore
+keystore-base64.txt
