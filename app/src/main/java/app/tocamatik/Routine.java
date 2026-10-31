@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-/** Una rutina: velocidad, modo natural, cuándo detenerse y los puntos guardados. */
+/** Una rutina: velocidad, ráfagas, zona, modo natural, cuándo detenerse y los puntos guardados. */
 final class Routine {
 
     static final int STOP_NEVER = 0;
@@ -24,6 +24,15 @@ final class Routine {
     static final int MIN_INTERVAL = 50;      // 20 toques por segundo
     static final int MAX_INTERVAL = 3_600_000; // una hora
 
+    static final int MAX_BURST_TAPS = 1000;
+    static final int MIN_BURST_EVERY = 1000;
+    static final int MAX_BURST_EVERY = 3_600_000;
+
+    /** Radio de una zona como fracción del lado corto de la pantalla. */
+    static final float DEFAULT_ZONE = 0.14f;
+    static final float MIN_ZONE = 0.02f;
+    static final float MAX_ZONE = 0.45f;
+
     String id = UUID.randomUUID().toString();
     String name = "Nueva rutina";
     int icon = ICON_ZAP;
@@ -32,7 +41,16 @@ final class Routine {
     int stopMode = STOP_NEVER;
     int stopTaps = 1000;
     int stopMinutes = 10;
-    /** Centro de cada punto como fracción del ancho y alto de la pantalla (0..1). */
+    /** Ráfagas: {@code burstTaps} toques seguidos y luego pausa hasta completar {@code burstEveryMs}. */
+    boolean burst = false;
+    int burstTaps = 15;
+    int burstEveryMs = 5000;
+    /** Zona: cada punto es un círculo y cada toque cae en un lugar al azar dentro de él. */
+    boolean zone = false;
+    /**
+     * Cada punto es {x, y, radio}: centro como fracción del ancho y alto de la pantalla (0..1)
+     * y radio de la zona como fracción del lado corto.
+     */
     final List<float[]> points = new ArrayList<>();
 
     Routine copy() {
@@ -53,11 +71,16 @@ final class Routine {
         o.put("stopMode", stopMode);
         o.put("stopTaps", stopTaps);
         o.put("stopMinutes", stopMinutes);
+        o.put("burst", burst);
+        o.put("burstTaps", burstTaps);
+        o.put("burstEvery", burstEveryMs);
+        o.put("zone", zone);
         JSONArray pts = new JSONArray();
         for (float[] p : points) {
             JSONArray a = new JSONArray();
             a.put((double) p[0]);
             a.put((double) p[1]);
+            a.put((double) p[2]);
             pts.put(a);
         }
         o.put("points", pts);
@@ -74,6 +97,10 @@ final class Routine {
         r.stopMode = clamp(o.optInt("stopMode", STOP_NEVER), STOP_NEVER, STOP_TIME);
         r.stopTaps = clamp(o.optInt("stopTaps", 1000), 1, 10_000_000);
         r.stopMinutes = clamp(o.optInt("stopMinutes", 10), 1, 24 * 60);
+        r.burst = o.optBoolean("burst", false);
+        r.burstTaps = clamp(o.optInt("burstTaps", 15), 1, MAX_BURST_TAPS);
+        r.burstEveryMs = clamp(o.optInt("burstEvery", 5000), MIN_BURST_EVERY, MAX_BURST_EVERY);
+        r.zone = o.optBoolean("zone", false);
         JSONArray pts = o.optJSONArray("points");
         if (pts != null) {
             for (int i = 0; i < pts.length() && i < MAX_POINTS; i++) {
@@ -81,7 +108,8 @@ final class Routine {
                 if (a == null || a.length() < 2) continue;
                 float x = (float) a.optDouble(0, 0.5);
                 float y = (float) a.optDouble(1, 0.5);
-                r.points.add(new float[]{clampF(x), clampF(y)});
+                float z = (float) a.optDouble(2, DEFAULT_ZONE);
+                r.points.add(new float[]{clampF(x), clampF(y), clampZone(z)});
             }
         }
         return r;
@@ -99,9 +127,15 @@ final class Routine {
     }
 
     /** "12/s" o "cada 30 s". */
-    String rateShort() {
+    String speedShort() {
         if (isFast()) return perSecond() + "/s";
         return "cada " + seconds(intervalMs);
+    }
+
+    /** Como {@link #speedShort()}, o "15 cada 5 s" con ráfagas. */
+    String rateShort() {
+        if (burst) return burstTaps + " cada " + seconds(burstEveryMs);
+        return speedShort();
     }
 
     String stopText() {
@@ -118,7 +152,8 @@ final class Routine {
     String summary() {
         StringBuilder sb = new StringBuilder();
         int n = points.size();
-        sb.append(n == 0 ? "Sin puntos" : (n == 1 ? "1 punto" : n + " puntos"));
+        if (zone) sb.append(n == 0 ? "Sin zonas" : (n == 1 ? "1 zona" : n + " zonas"));
+        else sb.append(n == 0 ? "Sin puntos" : (n == 1 ? "1 punto" : n + " puntos"));
         sb.append(" · ").append(rateShort());
         if (natural) sb.append(" · natural");
         String stop = stopText();
@@ -175,5 +210,10 @@ final class Routine {
 
     static float clampF(float v) {
         return Math.max(0f, Math.min(1f, v));
+    }
+
+    static float clampZone(float v) {
+        if (Float.isNaN(v)) return DEFAULT_ZONE;
+        return Math.max(MIN_ZONE, Math.min(MAX_ZONE, v));
     }
 }

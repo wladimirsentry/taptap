@@ -4,6 +4,7 @@ import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.DashPathEffect;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.RectF;
@@ -259,16 +260,25 @@ final class Views {
     }
 
     // =====================================================================
-    /** Punto de toque numerado, con onda al tocar. La ventana es más grande que el círculo para la onda. */
+    /**
+     * Punto de toque numerado, con onda al tocar. La ventana es más grande que el círculo para la onda.
+     * En modo zona dibuja un círculo punteado del radio elegido, con un tirador en el borde para
+     * cambiar su tamaño, y la onda aparece donde cayó cada toque.
+     */
     static final class TargetView extends View {
         private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint halo = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint ripple = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint zoneFill = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint zoneStroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint handleFill = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint handleMark = new Paint(Paint.ANTI_ALIAS_FLAG);
         private int number;
-        private boolean dim;
-        private float wave = -1f;
+        private boolean dim, zone;
+        private float radius;
+        private float wave = -1f, waveX, waveY;
         private ValueAnimator waveAnim;
 
         TargetView(Context c, int number) {
@@ -289,13 +299,29 @@ final class Views {
             label.setTypeface(Ui.font(c, Ui.W_EXTRA));
             label.setTextSize(Ui.dp(c, 17));
             label.setShadowLayer(Ui.dp(c, 2), 0, 0, 0x88000000);
+            zoneFill.setColor(0x405B47F5);
+            zoneStroke.setStyle(Paint.Style.STROKE);
+            zoneStroke.setStrokeWidth(Ui.dp(c, 2.5f));
+            zoneStroke.setColor(Color.WHITE);
+            zoneStroke.setPathEffect(new DashPathEffect(new float[]{Ui.dp(c, 9), Ui.dp(c, 6)}, 0));
+            handleFill.setColor(Color.WHITE);
+            handleFill.setShadowLayer(Ui.dp(c, 2), 0, Ui.dp(c, 0.5f), 0x55000000);
+            handleMark.setStyle(Paint.Style.STROKE);
+            handleMark.setStrokeWidth(Ui.dp(c, 2));
+            handleMark.setStrokeCap(Paint.Cap.ROUND);
+            handleMark.setColor(Ui.P);
             setLayerType(LAYER_TYPE_SOFTWARE, null);
             setContentDescription("Punto " + number);
         }
 
+        /** Espacio entre el borde de la zona y el de su ventana, para el tirador y la onda. */
+        static int zonePad(Context c) {
+            return Ui.dp(c, 18);
+        }
+
         void setNumber(int n) {
             number = n;
-            setContentDescription("Punto " + n);
+            setContentDescription((zone ? "Zona " : "Punto ") + n);
             invalidate();
         }
 
@@ -304,8 +330,42 @@ final class Views {
             invalidate();
         }
 
-        /** Onda corta que se expande cuando Tocamatik toca este punto. */
-        void pulse() {
+        void setZone(boolean z, float radiusPx) {
+            zone = z;
+            radius = radiusPx;
+            setContentDescription((zone ? "Zona " : "Punto ") + number);
+            invalidate();
+        }
+
+        boolean isZone() {
+            return zone;
+        }
+
+        float radius() {
+            return radius;
+        }
+
+        /** ¿El punto (x, y) de la vista está sobre el tirador que cambia el tamaño de la zona? */
+        boolean onHandle(float x, float y) {
+            if (!zone) return false;
+            return Math.hypot(x - handleX(), y - handleY()) < Ui.dp(getContext(), 26);
+        }
+
+        private float handleX() {
+            return getWidth() / 2f + radius * 0.7071f;
+        }
+
+        private float handleY() {
+            return getHeight() / 2f + radius * 0.7071f;
+        }
+
+        /**
+         * Onda corta cuando Tocamatik toca este punto. En una zona nace en (x, y) de la vista,
+         * donde cayó el toque; en un punto siempre sale del centro.
+         */
+        void pulseAt(float x, float y) {
+            waveX = x;
+            waveY = y;
             if (waveAnim != null) waveAnim.cancel();
             waveAnim = ValueAnimator.ofFloat(0f, 1f);
             waveAnim.setDuration(380);
@@ -322,6 +382,10 @@ final class Views {
         @Override
         protected void onDraw(Canvas c) {
             float cx = getWidth() / 2f, cy = getHeight() / 2f;
+            if (zone) {
+                drawZone(c, cx, cy);
+                return;
+            }
             float r = Ui.dp(getContext(), 28);
             int alpha = dim ? 150 : 255;
             fill.setAlpha(dim ? 90 : 140);
@@ -338,6 +402,42 @@ final class Views {
             }
             float ty = cy - (label.descent() + label.ascent()) / 2f;
             c.drawText(String.valueOf(number), cx, ty, label);
+        }
+
+        private void drawZone(Canvas c, float cx, float cy) {
+            Context ctx = getContext();
+            int alpha = dim ? 150 : 255;
+            zoneFill.setAlpha(dim ? 38 : 64);
+            zoneStroke.setAlpha(dim ? 120 : 230);
+            c.drawCircle(cx, cy, radius, zoneFill);
+            c.drawCircle(cx, cy, radius, zoneStroke);
+
+            if (wave >= 0f && wave < 1f) {
+                ripple.setAlpha((int) (220 * (1f - wave)));
+                c.drawCircle(waveX, waveY, Ui.dp(ctx, 4) + Ui.dp(ctx, 16) * wave, ripple);
+            }
+
+            float r = Ui.dp(ctx, 16);
+            fill.setAlpha(dim ? 90 : 170);
+            stroke.setAlpha(alpha);
+            stroke.setStrokeWidth(Ui.dp(ctx, 2));
+            label.setAlpha(alpha);
+            c.drawCircle(cx, cy, r, fill);
+            c.drawCircle(cx, cy, r, stroke);
+            stroke.setStrokeWidth(Ui.dp(ctx, 3));
+            float ty = cy - (label.descent() + label.ascent()) / 2f;
+            c.drawText(String.valueOf(number), cx, ty, label);
+
+            if (!dim) {
+                // Tirador: círculo blanco con una flecha diagonal (arrastrar = cambiar tamaño)
+                float hx = handleX(), hy = handleY(), a = Ui.dp(ctx, 4.5f);
+                c.drawCircle(hx, hy, Ui.dp(ctx, 11), handleFill);
+                c.drawLine(hx - a, hy - a, hx + a, hy + a, handleMark);
+                c.drawLine(hx + a, hy + a, hx + a - Ui.dp(ctx, 4), hy + a, handleMark);
+                c.drawLine(hx + a, hy + a, hx + a, hy + a - Ui.dp(ctx, 4), handleMark);
+                c.drawLine(hx - a, hy - a, hx - a + Ui.dp(ctx, 4), hy - a, handleMark);
+                c.drawLine(hx - a, hy - a, hx - a, hy - a + Ui.dp(ctx, 4), handleMark);
+            }
         }
     }
 }

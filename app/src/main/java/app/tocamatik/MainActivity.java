@@ -241,7 +241,8 @@ public class MainActivity extends Activity {
         chips.addView(Ui.chip(this, active.rateShort(), Color.WHITE, 0x1FFFFFFF));
         if (active.natural) chips.addView(Ui.chip(this, "Natural", Color.WHITE, 0x1FFFFFFF), Ui.margins(Ui.lpWrap(), this, 7, 0, 0, 0));
         int n = active.points.size();
-        chips.addView(Ui.chip(this, n == 1 ? "1 punto" : n + " puntos", Color.WHITE, 0x1FFFFFFF),
+        String what = active.zone ? (n == 1 ? "1 zona" : n + " zonas") : (n == 1 ? "1 punto" : n + " puntos");
+        chips.addView(Ui.chip(this, what, Color.WHITE, 0x1FFFFFFF),
                 Ui.margins(Ui.lpWrap(), this, 7, 0, 0, 0));
         status.addView(chips, Ui.margins(Ui.lpMatchWrap(), this, 0, 12, 0, 0));
 

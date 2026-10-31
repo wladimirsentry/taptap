@@ -63,8 +63,8 @@ public class TocamatikService extends AccessibilityService {
     private boolean panelAttached;
     private LinearLayout playBtn;
     private TextView countTv, rateTv;
-    private LinearLayout naturalBtn;
-    private ImageView naturalIcon, collapseIcon;
+    private LinearLayout naturalBtn, zoneBtn;
+    private ImageView naturalIcon, zoneIcon, collapseIcon;
 
     // Píldora superior mientras toca
     private LinearLayout pill;
@@ -85,12 +85,17 @@ public class TocamatikService extends AccessibilityService {
         Views.TargetView view;
         WindowManager.LayoutParams lp;
         boolean attached;
+        /** Radio guardado de la zona (fracción del lado corto), se conserva aunque la zona esté apagada. */
+        float zone;
     }
 
     // Motor
     private int index;
     private long sessionTaps, unflushedTaps, startedAt;
     private double drift;
+    // Ráfagas: toques que faltan en la actual, cuándo empezó y cuánto dura su ciclo
+    private int burstLeft;
+    private long burstStartedAt, burstPeriod;
 
     private AccessibilityButtonController.AccessibilityButtonCallback a11yButton;
 
@@ -205,10 +210,8 @@ public class TocamatikService extends AccessibilityService {
     void reloadRoutine() {
         if (!shown) return;
         stop(null);
-        for (Target t : targets) detachTarget(t);
-        targets.clear();
         routine = Store.active(this);
-        restoreTargets();
+        rebuildTargets();
         refreshPanel();
     }
 
@@ -465,6 +468,11 @@ public class TocamatikService extends AccessibilityService {
         naturalBtn.setOnClickListener(v -> toggleNatural());
         panel.addView(naturalBtn);
 
+        zoneBtn = panelButton(R.drawable.ic_circle_dashed, 48, 16, 0x14FFFFFF, Color.WHITE, "Zona aleatoria");
+        zoneIcon = (ImageView) zoneBtn.getChildAt(0);
+        zoneBtn.setOnClickListener(v -> toggleZone());
+        panel.addView(zoneBtn);
+
         panel.addView(divider());
 
         LinearLayout collapseBtn = panelButton(R.drawable.ic_chevrons_right, 38, 13, 0x14FFFFFF, 0xFFC9C5E0, "Encoger panel");
@@ -524,6 +532,9 @@ public class TocamatikService extends AccessibilityService {
         naturalBtn.setBackground(Ui.pressable(Ui.round(routine.natural ? 0x405B47F5 : 0x14FFFFFF, dp(16)), 0x33FFFFFF));
         naturalIcon.setImageTintList(android.content.res.ColorStateList.valueOf(routine.natural ? 0xFFC9BFFF : 0x80FFFFFF));
         naturalBtn.setContentDescription(routine.natural ? "Modo natural activado" : "Modo natural desactivado");
+        zoneBtn.setBackground(Ui.pressable(Ui.round(routine.zone ? 0x405B47F5 : 0x14FFFFFF, dp(16)), 0x33FFFFFF));
+        zoneIcon.setImageTintList(android.content.res.ColorStateList.valueOf(routine.zone ? 0xFFC9BFFF : 0x80FFFFFF));
+        zoneBtn.setContentDescription(routine.zone ? "Zona aleatoria activada" : "Zona aleatoria desactivada");
         collapseIcon.setRotation(onRight ? 0f : 180f);
     }
 
@@ -591,6 +602,19 @@ public class TocamatikService extends AccessibilityService {
         toast(fresh.natural ? "Modo natural activado" : "Modo natural desactivado");
     }
 
+    /** Cambia los puntos por zonas (o al revés) sin perder su posición ni su tamaño. */
+    private void toggleZone() {
+        if (running) return;
+        Routine fresh = freshRoutine();
+        fresh.zone = !fresh.zone;
+        Store.upsert(this, fresh);
+        routine = fresh;
+        rebuildTargets();
+        refreshPanel();
+        toast(fresh.zone ? "Zona aleatoria: arrastra el borde del círculo para cambiar su tamaño"
+                : "Zona aleatoria desactivada");
+    }
+
     // ================================================================ píldora superior
 
     private void showPill() {
@@ -619,7 +643,8 @@ public class TocamatikService extends AccessibilityService {
 
     private void updatePill() {
         if (pillText == null || routine == null) return;
-        String s = "Tocamatik · " + routine.rateShort() + (routine.natural ? " · natural" : "") + " · " + Ui.number(sessionTaps);
+        String s = "Tocamatik · " + routine.rateShort() + (routine.zone ? " · zona" : "")
+                + (routine.natural ? " · natural" : "") + " · " + Ui.number(sessionTaps);
         pillText.setText(s);
     }
 
@@ -633,16 +658,36 @@ public class TocamatikService extends AccessibilityService {
 
     private void restoreTargets() {
         for (float[] p : routine.points) {
-            Target t = makeTarget(targets.size() + 1, p[0], p[1]);
+            Target t = makeTarget(targets.size() + 1, p[0], p[1], p[2]);
             targets.add(t);
             attachTarget(t);
         }
     }
 
-    private Target makeTarget(int number, float fx, float fy) {
+    /** Vuelve a crear los puntos desde la rutina y deja el panel o la burbuja encima de ellos. */
+    private void rebuildTargets() {
+        for (Target t : targets) detachTarget(t);
+        targets.clear();
+        restoreTargets();
+        if (panelAttached) {
+            detach(panel, true);
+            panelAttached = attach(panel, panelLp);
+        } else if (bubbleAttached) {
+            detach(bubble, true);
+            bubbleAttached = attach(bubble, bubbleLp);
+        }
+    }
+
+    private Target makeTarget(int number, float fx, float fy, float zone) {
         Target t = new Target();
         t.view = new Views.TargetView(this, number);
+        t.zone = zone;
         int size = dp(96);
+        if (routine.zone) {
+            float radius = zoneRadius(zone);
+            t.view.setZone(true, radius);
+            size = zoneWindow(radius);
+        }
         t.lp = overlayLp(size, size);
         t.lp.x = Math.round(fx * screenW()) - size / 2;
         t.lp.y = Math.round(fy * screenH()) - size / 2;
@@ -658,7 +703,7 @@ public class TocamatikService extends AccessibilityService {
         }
         int n = targets.size();
         float off = (n % 5) * 0.06f;
-        Target t = makeTarget(n + 1, 0.42f + off * 0.5f, 0.40f + off);
+        Target t = makeTarget(n + 1, 0.42f + off * 0.5f, 0.40f + off, Routine.DEFAULT_ZONE);
         targets.add(t);
         attachTarget(t);
         // El panel queda encima de los puntos
@@ -669,7 +714,8 @@ public class TocamatikService extends AccessibilityService {
             }
         });
         savePoints();
-        if (n == 0) toast("Arrastra el punto a donde quieres tocar");
+        if (n == 0) toast(routine.zone ? "Arrastra la zona a donde quieres tocar"
+                : "Arrastra el punto a donde quieres tocar");
     }
 
     private void removeTarget() {
@@ -705,16 +751,20 @@ public class TocamatikService extends AccessibilityService {
         int w = screenW(), hgt = screenH();
         for (Target t : targets) {
             float cx = t.lp.x + t.lp.width / 2f, cy = t.lp.y + t.lp.height / 2f;
-            fresh.points.add(new float[]{Routine.clampF(cx / w), Routine.clampF(cy / hgt)});
+            if (t.view.isZone()) t.zone = t.view.radius() / Math.min(w, hgt);
+            fresh.points.add(new float[]{Routine.clampF(cx / w), Routine.clampF(cy / hgt), Routine.clampZone(t.zone)});
         }
         Store.upsert(this, fresh);
         routine = fresh;
     }
 
+    /** Arrastrar mueve el punto o la zona; desde el tirador del borde, cambia el tamaño de la zona. */
     private final class TargetDrag implements View.OnTouchListener {
         private final Target t;
         private float downX, downY;
         private int startX, startY;
+        private boolean resizing;
+        private float centerX, centerY, centerRawX, centerRawY, grabOffset;
 
         TargetDrag(Target t) {
             this.t = t;
@@ -729,10 +779,31 @@ public class TocamatikService extends AccessibilityService {
                     downY = e.getRawY();
                     startX = t.lp.x;
                     startY = t.lp.y;
+                    resizing = t.view.onHandle(e.getX(), e.getY());
+                    if (resizing) {
+                        centerX = t.lp.x + t.lp.width / 2f;
+                        centerY = t.lp.y + t.lp.height / 2f;
+                        centerRawX = downX - e.getX() + t.view.getWidth() / 2f;
+                        centerRawY = downY - e.getY() + t.view.getHeight() / 2f;
+                        // Que el borde no salte hacia el dedo si no se tomó justo del centro del tirador
+                        grabOffset = t.view.radius() - (float) Math.hypot(downX - centerRawX, downY - centerRawY);
+                    }
                     return true;
                 case MotionEvent.ACTION_MOVE:
-                    t.lp.x = startX + (int) (e.getRawX() - downX);
-                    t.lp.y = startY + (int) (e.getRawY() - downY);
+                    if (resizing) {
+                        float d = (float) Math.hypot(e.getRawX() - centerRawX, e.getRawY() - centerRawY);
+                        int shortSide = Math.min(screenW(), screenH());
+                        float radius = Math.max(dp(28), Math.min(Routine.MAX_ZONE * shortSide, d + grabOffset));
+                        int size = zoneWindow(radius);
+                        t.view.setZone(true, radius);
+                        t.lp.width = size;
+                        t.lp.height = size;
+                        t.lp.x = Math.round(centerX - size / 2f);
+                        t.lp.y = Math.round(centerY - size / 2f);
+                    } else {
+                        t.lp.x = startX + (int) (e.getRawX() - downX);
+                        t.lp.y = startY + (int) (e.getRawY() - downY);
+                    }
                     update(t.view, t.lp);
                     return true;
                 case MotionEvent.ACTION_UP:
@@ -759,6 +830,9 @@ public class TocamatikService extends AccessibilityService {
         unflushedTaps = 0;
         drift = 0;
         startedAt = SystemClock.elapsedRealtime();
+        burstLeft = nextBurstSize();
+        burstPeriod = nextBurstPeriod();
+        burstStartedAt = startedAt + 250;
         setTargetsTouchable(false);
         collapse();
         showPill();
@@ -803,16 +877,33 @@ public class TocamatikService extends AccessibilityService {
             t.view.getLocationOnScreen(loc);
             float x = loc[0] + t.view.getWidth() / 2f;
             float y = loc[1] + t.view.getHeight() / 2f;
+            boolean zone = t.view.isZone();
+            if (zone) {
+                // Lugar al azar repartido parejo por todo el círculo, sin caer sobre la burbuja
+                // (tocarla detendría la rutina)
+                float cx = x, cy = y;
+                for (int i = 0; i < 8; i++) {
+                    double angle = rnd.nextDouble() * Math.PI * 2;
+                    double dist = t.view.radius() * Math.sqrt(rnd.nextDouble());
+                    x = cx + (float) (Math.cos(angle) * dist);
+                    y = cy + (float) (Math.sin(angle) * dist);
+                    if (!overBubble(x, y)) break;
+                }
+                x = Math.max(0, Math.min(screenW() - 1, x));
+                y = Math.max(0, Math.min(screenH() - 1, y));
+            }
 
             int base = routine.intervalMs;
             int duration;
             Path path = new Path();
             if (routine.natural) {
-                // Posición: el dedo no cae siempre en el mismo píxel (más denso cerca del centro)
-                double angle = rnd.nextDouble() * Math.PI * 2;
-                double radius = Math.min(Math.abs(rnd.nextGaussian()) * dp(3), dp(7));
-                x += (float) (Math.cos(angle) * radius);
-                y += (float) (Math.sin(angle) * radius);
+                if (!zone) {
+                    // Posición: el dedo no cae siempre en el mismo píxel (más denso cerca del centro)
+                    double angle = rnd.nextDouble() * Math.PI * 2;
+                    double radius = Math.min(Math.abs(rnd.nextGaussian()) * dp(3), dp(7));
+                    x += (float) (Math.cos(angle) * radius);
+                    y += (float) (Math.sin(angle) * radius);
+                }
                 // Presión: duración variable que nunca supera lo que permite el ritmo
                 int maxDur = Math.max(5, (int) (base * 0.55f));
                 duration = clamp((int) Math.round(38 + rnd.nextGaussian() * 9), 18, Math.min(70, maxDur));
@@ -832,7 +923,7 @@ public class TocamatikService extends AccessibilityService {
                 stop("Android rechazó el toque. Desactiva y vuelve a activar Tocamatik en Accesibilidad.");
                 return;
             }
-            t.view.pulse();
+            t.view.pulseAt(x - loc[0], y - loc[1]);
             sessionTaps++;
             unflushedTaps++;
             if (unflushedTaps >= 60) {
@@ -865,6 +956,14 @@ public class TocamatikService extends AccessibilityService {
                 interval = base;
             }
             long delay = Math.max(interval, duration + 10);
+            if (routine.burst && --burstLeft <= 0) {
+                // Fin de la ráfaga: descansa hasta completar el ciclo y prepara la siguiente
+                long now = SystemClock.elapsedRealtime();
+                delay = Math.max(delay, burstStartedAt + burstPeriod - now);
+                burstStartedAt = now + delay;
+                burstPeriod = nextBurstPeriod();
+                burstLeft = nextBurstSize();
+            }
             if (routine.stopMode == Routine.STOP_TIME) {
                 // Con ritmos lentos, no esperar más allá del límite de tiempo
                 long left = routine.stopMinutes * 60_000L - (SystemClock.elapsedRealtime() - startedAt);
@@ -873,6 +972,28 @@ public class TocamatikService extends AccessibilityService {
             handler.postDelayed(this, delay);
         }
     };
+
+    /** Toques de la próxima ráfaga; con modo natural varía cerca de lo elegido (15 → 11..19). */
+    private int nextBurstSize() {
+        if (!routine.natural) return routine.burstTaps;
+        double f = 1 + Math.max(-0.3, Math.min(0.3, rnd.nextGaussian() * 0.15));
+        return Math.max(1, (int) Math.round(routine.burstTaps * f));
+    }
+
+    /** Duración del próximo ciclo de ráfaga; con modo natural varía hasta ±20 %. */
+    private long nextBurstPeriod() {
+        if (!routine.natural) return routine.burstEveryMs;
+        double f = 1 + Math.max(-0.2, Math.min(0.2, rnd.nextGaussian() * 0.1));
+        return Math.round(routine.burstEveryMs * f);
+    }
+
+    /** ¿El punto de pantalla (x, y) cae sobre la burbuja (con un margen)? */
+    private boolean overBubble(float x, float y) {
+        if (!bubbleAttached || bubbleLp == null) return false;
+        int m = dp(8);
+        return x >= bubbleLp.x - m && x <= bubbleLp.x + bubbleLp.width + m
+                && y >= bubbleLp.y - m && y <= bubbleLp.y + bubbleLp.height + m;
+    }
 
     // ================================================================ utilidades
 
@@ -898,6 +1019,17 @@ public class TocamatikService extends AccessibilityService {
             bubbleAttached = false;
             showBubble(); // mantiene el lado (onRight) y recoloca con el nuevo ancho
         }
+    }
+
+    /** Radio en px de una zona guardada como fracción del lado corto de la pantalla. */
+    private float zoneRadius(float fraction) {
+        int shortSide = Math.min(screenW(), screenH());
+        return Math.max(dp(28), Math.min(Routine.MAX_ZONE * shortSide, fraction * shortSide));
+    }
+
+    /** Lado de la ventana de una zona: el círculo más el espacio para el tirador. */
+    private int zoneWindow(float radius) {
+        return Math.round(2 * (radius + Views.TargetView.zonePad(this)));
     }
 
     private WindowManager.LayoutParams overlayLp(int w, int h) {

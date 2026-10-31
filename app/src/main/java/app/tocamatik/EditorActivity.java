@@ -16,7 +16,7 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
-/** Crear o editar una rutina: nombre, icono, velocidad, modo natural y detención automática. */
+/** Crear o editar una rutina: nombre, icono, velocidad, ráfagas, modo natural, zona y detención automática. */
 public class EditorActivity extends Activity {
 
     static final String EXTRA_ID = "id";
@@ -37,6 +37,8 @@ public class EditorActivity extends Activity {
     private Views.ToggleView natural;
     private Views.BarsView bars;
     private boolean fastMode;
+    private LinearLayout burstBox;
+    private TextView burstTapsValue, burstEveryValue, burstHint;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -77,7 +79,9 @@ public class EditorActivity extends Activity {
 
         c.addView(nameCard());
         c.addView(speedCard(), gap());
+        c.addView(burstCard(), gap());
         c.addView(naturalCard(), gap());
+        c.addView(zoneCard(), gap());
         c.addView(stopCard(), gap());
         c.addView(pointsCard(), gap());
 
@@ -237,12 +241,15 @@ public class EditorActivity extends Activity {
     }
 
     private void stepSlow(int dir) {
-        int s = Math.max(1, r.intervalMs / 1000);
+        r.intervalMs = stepSeconds(Math.max(1, r.intervalMs / 1000), dir) * 1000;
+        refreshSpeed();
+    }
+
+    /** Siguiente valor en segundos para los botones − y +: pasos más grandes cuanto mayor es el valor. */
+    private static int stepSeconds(int s, int dir) {
         int step = s < 10 ? 1 : (s < 60 ? 5 : (s < 600 ? 30 : 60));
         if (dir < 0 && s <= 10 && s > 1) step = 1;
-        s = Routine.clamp(s + dir * step, 1, 3600);
-        r.intervalMs = s * 1000;
-        refreshSpeed();
+        return Routine.clamp(s + dir * step, 1, 3600);
     }
 
     private void refreshSpeed() {
@@ -262,29 +269,78 @@ public class EditorActivity extends Activity {
             slowValue.setText(Routine.seconds(r.intervalMs));
             selectPreset(slowPresets, SLOW_PRESETS, s);
         }
+        refreshBurst();
+    }
+
+    // ------------------------------------------------------------------ ráfagas
+
+    private View burstCard() {
+        LinearLayout card = padCard();
+        Views.ToggleView toggle = new Views.ToggleView(this);
+        toggle.setOn(r.burst, false);
+        toggle.setListener(on -> {
+            r.burst = on;
+            refreshBurst();
+        });
+        card.addView(toggleHeader(R.drawable.ic_timer, Ui.MINT, Ui.MINT_S, "Ráfagas", "Toca en tandas y descansa", toggle));
+
+        burstBox = Ui.col(this);
+        burstTapsValue = stepperRow(burstBox, "Toques por ráfaga", this::stepBurstTaps);
+        burstEveryValue = stepperRow(burstBox, "Repetir cada", this::stepBurstEvery);
+        burstHint = Ui.text(this, "", 12, Ui.MUTED, Ui.W_MEDIUM);
+        burstHint.setLineSpacing(0, 1.3f);
+        burstHint.setPadding(Ui.dp(this, 12), Ui.dp(this, 10), Ui.dp(this, 12), Ui.dp(this, 10));
+        burstHint.setBackground(Ui.round(Ui.BG, Ui.dp(this, 14)));
+        burstBox.addView(burstHint, Ui.margins(Ui.lpMatchWrap(), this, 0, 14, 0, 0));
+        card.addView(burstBox, Ui.lpMatchWrap());
+        return card;
+    }
+
+    private void stepBurstTaps(int dir) {
+        int v = r.burstTaps;
+        int step = v < 20 ? 1 : (v < 100 ? 5 : 50);
+        if (dir < 0 && v <= 20) step = 1;
+        else if (dir < 0 && v <= 100) step = 5;
+        r.burstTaps = Routine.clamp(v + dir * step, 1, Routine.MAX_BURST_TAPS);
+        refreshBurst();
+    }
+
+    private void stepBurstEvery(int dir) {
+        r.burstEveryMs = stepSeconds(Math.max(1, r.burstEveryMs / 1000), dir) * 1000;
+        refreshBurst();
+    }
+
+    private void refreshBurst() {
+        if (burstBox == null) return;
+        burstBox.setVisibility(r.burst ? View.VISIBLE : View.GONE);
+        burstTapsValue.setText(Ui.number(r.burstTaps));
+        burstEveryValue.setText(Routine.seconds(r.burstEveryMs));
+        long busy = (long) r.burstTaps * r.intervalMs;
+        String speed = r.isFast() ? "a " + r.speedShort() : "(uno " + r.speedShort() + ")";
+        String hint;
+        if (busy < r.burstEveryMs) {
+            hint = r.burstTaps + " toques " + speed + " duran ≈" + Routine.seconds((int) busy)
+                    + " y luego descansa ≈" + Routine.seconds((int) (r.burstEveryMs - busy)) + ".";
+        } else {
+            hint = "La ráfaga dura ≈" + Routine.seconds((int) Math.min(busy, Integer.MAX_VALUE))
+                    + ", más que el ciclo: no habrá pausa. Baja los toques o sube el tiempo.";
+        }
+        if (r.natural) hint += "\nCon modo natural, la cantidad y la pausa cambian un poco en cada ráfaga.";
+        burstHint.setText(hint);
     }
 
     // ------------------------------------------------------------------ modo natural
 
     private View naturalCard() {
         LinearLayout card = padCard();
-        LinearLayout head = Ui.row(this);
-        head.addView(Ui.iconBox(this, R.drawable.ic_sparkles, Ui.P, Ui.PS, 42, 20, 14));
-        LinearLayout t = Ui.col(this);
-        t.setPadding(Ui.dp(this, 12), 0, Ui.dp(this, 8), 0);
-        t.addView(Ui.text(this, "Modo natural", 15, Ui.INK, Ui.W_EXTRA));
-        TextView sub = Ui.text(this, "Toca como una persona", 12.5f, Ui.MUTED, Ui.W_BOLD);
-        sub.setPadding(0, Ui.dp(this, 3), 0, 0);
-        t.addView(sub);
-        head.addView(t, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         natural = new Views.ToggleView(this);
         natural.setOn(r.natural, false);
         natural.setListener(on -> {
             r.natural = on;
             bars.setActive(on);
+            refreshBurst();
         });
-        head.addView(natural);
-        card.addView(head);
+        card.addView(toggleHeader(R.drawable.ic_sparkles, Ui.P, Ui.PS, "Modo natural", "Toca como una persona", natural));
 
         LinearLayout viz = Ui.row(this);
         viz.setPadding(Ui.dp(this, 12), Ui.dp(this, 10), Ui.dp(this, 12), Ui.dp(this, 10));
@@ -320,6 +376,24 @@ public class EditorActivity extends Activity {
         m.addView(Ui.icon(this, icon, Ui.P, 18));
         m.addView(Ui.text(this, label, 11, Ui.MUTED, Ui.W_BOLD), Ui.margins(Ui.lpWrap(), this, 0, 4, 0, 0));
         return m;
+    }
+
+    // ------------------------------------------------------------------ zona
+
+    private View zoneCard() {
+        LinearLayout card = padCard();
+        Views.ToggleView toggle = new Views.ToggleView(this);
+        toggle.setOn(r.zone, false);
+        toggle.setListener(on -> r.zone = on);
+        card.addView(toggleHeader(R.drawable.ic_circle_dashed, Ui.AMBER, Ui.AMBER_S,
+                "Zona aleatoria", "Cada toque cae en un lugar distinto", toggle));
+        TextView body = Ui.text(this,
+                "Cada punto se vuelve un círculo y los toques caen al azar dentro de él. En el panel flotante "
+                        + "arrástralo para moverlo y usa el tirador del borde para cambiar su tamaño.",
+                12.5f, Ui.MUTED, Ui.W_MEDIUM);
+        body.setLineSpacing(0, 1.3f);
+        card.addView(body, Ui.margins(Ui.lpMatchWrap(), this, 0, 12, 0, 0));
+        return card;
     }
 
     // ------------------------------------------------------------------ detener
@@ -448,6 +522,39 @@ public class EditorActivity extends Activity {
     // ------------------------------------------------------------------ piezas
 
     private interface OnPick { void picked(int value); }
+
+    /** Cabecera de tarjeta: icono de color, título, subtítulo y un interruptor a la derecha. */
+    private LinearLayout toggleHeader(int icon, int fg, int bg, String title, String subtitle, Views.ToggleView toggle) {
+        LinearLayout head = Ui.row(this);
+        head.addView(Ui.iconBox(this, icon, fg, bg, 42, 20, 14));
+        LinearLayout t = Ui.col(this);
+        t.setPadding(Ui.dp(this, 12), 0, Ui.dp(this, 8), 0);
+        t.addView(Ui.text(this, title, 15, Ui.INK, Ui.W_EXTRA));
+        TextView sub = Ui.text(this, subtitle, 12.5f, Ui.MUTED, Ui.W_BOLD);
+        sub.setPadding(0, Ui.dp(this, 3), 0, 0);
+        t.addView(sub);
+        head.addView(t, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        head.addView(toggle);
+        return head;
+    }
+
+    /** Fila "Etiqueta   −  valor  +" agregada a {@code parent}; devuelve el texto del valor. */
+    private TextView stepperRow(LinearLayout parent, String label, OnPick onStep) {
+        LinearLayout row = Ui.row(this);
+        row.addView(Ui.text(this, label, 14, Ui.MUTED, Ui.W_BOLD));
+        row.addView(Ui.weightSpace(this));
+        LinearLayout minus = smallButton(R.drawable.ic_minus, "Menos");
+        minus.setOnClickListener(v -> onStep.picked(-1));
+        row.addView(minus);
+        TextView value = Ui.text(this, "", 14, Ui.INK, Ui.W_EXTRA);
+        value.setGravity(Gravity.CENTER);
+        row.addView(value, new LinearLayout.LayoutParams(Ui.dp(this, 90), LinearLayout.LayoutParams.WRAP_CONTENT));
+        LinearLayout plus = smallButton(R.drawable.ic_plus, "Más");
+        plus.setOnClickListener(v -> onStep.picked(1));
+        row.addView(plus);
+        parent.addView(row, Ui.margins(Ui.lpMatchWrap(), this, 0, 14, 0, 0));
+        return value;
+    }
 
     private TextView[] segmented(LinearLayout parent, String[] labels, OnPick onPick) {
         LinearLayout seg = Ui.row(this);

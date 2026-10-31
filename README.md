@@ -4,6 +4,8 @@ Auto clicker para Android 8+ con burbuja flotante, rutinas guardadas y modo natu
 
 - Hasta 20 puntos, de 1 a 20 toques por segundo (o un toque cada varios segundos/minutos).
 - Modo natural: varía ritmo, posición y duración de cada toque manteniendo el promedio.
+- Zona aleatoria: cada punto puede ser un círculo (movible y de tamaño ajustable) y cada toque cae en un lugar al azar dentro de él.
+- Ráfagas: N toques seguidos y descanso hasta completar el ciclo (ej. 15 toques cada 5 s); con modo natural la cantidad y la pausa varían un poco.
 - Rutinas con nombre, icono y detención automática por cantidad de toques o por tiempo.
 - Aviso destacado y consentimiento antes de pedir el permiso de Accesibilidad (requisito de Google Play).
 - Sin Internet, sin anuncios, sin cuentas, sin recopilar datos.

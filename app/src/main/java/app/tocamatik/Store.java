@@ -145,9 +145,9 @@ final class Store {
         combo.natural = true;
         combo.stopMode = Routine.STOP_TAPS;
         combo.stopTaps = 1500;
-        combo.points.add(new float[]{0.30f, 0.45f});
-        combo.points.add(new float[]{0.50f, 0.55f});
-        combo.points.add(new float[]{0.70f, 0.45f});
+        combo.points.add(new float[]{0.30f, 0.45f, Routine.DEFAULT_ZONE});
+        combo.points.add(new float[]{0.50f, 0.55f, Routine.DEFAULT_ZONE});
+        combo.points.add(new float[]{0.70f, 0.45f, Routine.DEFAULT_ZONE});
         list.add(combo);
 
         Routine slow = new Routine();

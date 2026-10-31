@@ -17,7 +17,7 @@ android {
         targetSdk 36
         // GitHub Actions entrega un número que sube en cada compilación
         versionCode Integer.parseInt(System.getenv('TOCAMATIK_VERSION_CODE') ?: '1')
-        versionName "1.0.2"
+        versionName "1.1.0"
         resValue "string", "a11y_packages", "app.tocamatik"
     }
 
