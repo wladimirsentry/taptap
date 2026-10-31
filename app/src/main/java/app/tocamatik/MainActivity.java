@@ -284,7 +284,7 @@ public class MainActivity extends Activity {
         content.addView(list);
 
         TextView tip = Ui.text(this,
-                "Toca una rutina para editarla. Toca ▶ para usarla. También puedes abrir el panel con el botón de accesibilidad de Android.",
+                "Toca una rutina para editarla. Toca ▶ para usarla.",
                 12, Ui.MUTED, Ui.W_MEDIUM);
         tip.setLineSpacing(0, 1.3f);
         content.addView(tip, Ui.margins(Ui.lpMatchWrap(), this, 4, 14, 4, 0));

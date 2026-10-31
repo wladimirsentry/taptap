@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Tocamatik NO es una herramienta de accesibilidad para personas con discapacidad,
-     por eso no declara isAccessibilityTool y muestra su propio aviso con consentimiento. -->
+     por eso no declara isAccessibilityTool y muestra su propio aviso con consentimiento.
+     Solo escucha eventos de su propia app (packageNames): no recibe nada de otras apps,
+     así no agrega carga a juegos o apps pesadas como TikTok. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:summary="@string/a11y_summary"
     android:description="@string/a11y_desc"
-    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityEventTypes="typeAnnouncement"
+    android:packageNames="@string/a11y_packages"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagDefault|flagRequestAccessibilityButton"
+    android:accessibilityFlags="flagDefault"
     android:canPerformGestures="true"
     android:canRetrieveWindowContent="false"
     android:notificationTimeout="100"
